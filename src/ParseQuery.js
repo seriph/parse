@@ -630,6 +630,10 @@ export default class ParseQuery {
     }
     return this;
   }
+  includeTextScore(): ParseQuery {
+    this._addCondition('score', '$meta', 'textScore');
+    return this;
+  }
 
   /**
    * Adds a regular expression constraint for finding string values that match
@@ -927,6 +931,7 @@ export default class ParseQuery {
       }
       this._order = this._order.concat(
         key.replace(/\s/g, '').split(',').map((k) => {
+          if(k=='$score') return k;
           return '-' + k;
         })
       );
