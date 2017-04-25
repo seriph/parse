@@ -618,6 +618,19 @@ export default class ParseQuery {
     return this._addCondition(key, '$exists', false);
   }
 
+  text(text: string, modifiers: string): ParseQuery {
+    this._addCondition('$text', '$search', text);
+    if(modifiers){
+      if(modifiers.language)
+        this._addCondition('$text', '$language', modifiers.language);
+      if(modifiers.caseSensitive)
+        this._addCondition('$text', '$caseSensitive', modifiers.caseSensitive);
+      if(modifiers.diacriticSensitive)
+        this._addCondition('$text', '$diacriticSensitive', modifiers.diacriticSensitive);
+    }
+    return this;
+  }
+
   /**
    * Adds a regular expression constraint for finding string values that match
    * the provided regular expression.

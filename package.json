@@ -1,6 +1,6 @@
 {
-  "name": "parse",
-  "version": "1.9.2",
+  "name": "parse-text",
+  "version": "1.9.3",
   "description": "The Parse JavaScript SDK",
   "homepage": "https://www.parse.com",
   "keywords": [
@@ -11,9 +11,9 @@
   "license": "BSD-3-Clause",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ParsePlatform/Parse-SDK-JS"
+    "url": "https://github.com/seriph/Parse-SDK-JS"
   },
-  "bugs": "https://github.com/ParsePlatform/Parse-SDK-JS/issues",
+  "bugs": "https://github.com/seriph/Parse-SDK-JS/issues",
   "files": [
     "index.js",
     "node.js",
