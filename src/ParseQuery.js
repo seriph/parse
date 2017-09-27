@@ -13,6 +13,7 @@ import CoreManager from './CoreManager';
 import encode from './encode';
 import ParseError from './ParseError';
 import ParseGeoPoint from './ParseGeoPoint';
+import ParsePolygon from './ParsePolygon';
 import ParseObject from './ParseObject';
 import ParsePromise from './ParsePromise';
 
@@ -42,6 +43,70 @@ export type QueryJSON = {
  */
 function quote(s: string) {
   return '\\Q' + s.replace('\\E', '\\E\\\\E\\Q') + '\\E';
+}
+
+/**
+ * Handles pre-populating the result data of a query with select fields,
+ * making sure that the data object contains keys for all objects that have
+ * been requested with a select, so that our cached state updates correctly.
+ */
+function handleSelectResult(data: any, select: Array<string>){
+  var serverDataMask = {};
+
+  select.forEach((field) => {
+    let hasSubObjectSelect = field.indexOf(".") !== -1;
+    if (!hasSubObjectSelect && !data.hasOwnProperty(field)){
+      // this field was selected, but is missing from the retrieved data
+      data[field] = undefined
+    } else if (hasSubObjectSelect) {
+      // this field references a sub-object,
+      // so we need to walk down the path components
+      let pathComponents = field.split(".");
+      var obj = data;
+      var serverMask = serverDataMask;
+
+      pathComponents.forEach((component, index, arr) => {
+        // add keys if the expected data is missing
+        if (!obj[component]) {
+          obj[component] = (index == arr.length-1) ? undefined : {};
+        }
+        obj = obj[component];
+
+        //add this path component to the server mask so we can fill it in later if needed
+        if (index < arr.length-1) {
+          if (!serverMask[component]) {
+            serverMask[component] = {};
+          }
+        }
+      });
+    }
+  });
+
+  if (Object.keys(serverDataMask).length > 0) {
+    // When selecting from sub-objects, we don't want to blow away the missing
+    // information that we may have retrieved before. We've already added any
+    // missing selected keys to sub-objects, but we still need to add in the
+    // data for any previously retrieved sub-objects that were not selected.
+
+    let serverData = CoreManager.getObjectStateController().getServerData({id:data.objectId, className:data.className});
+
+    function copyMissingDataWithMask(src, dest, mask, copyThisLevel){
+      //copy missing elements at this level
+      if (copyThisLevel) {
+        for (var key in src) {
+          if (src.hasOwnProperty(key) && !dest.hasOwnProperty(key)) {
+            dest[key] = src[key]
+          }
+        }
+      }
+      for (var key in mask) {
+        //traverse into objects as needed
+        copyMissingDataWithMask(src[key], dest[key], mask[key], true);
+      }
+    }
+
+    copyMissingDataWithMask(serverData, data, serverDataMask, false);
+  }
 }
 
 /**
@@ -198,6 +263,75 @@ export default class ParseQuery {
   }
 
   /**
+   * Return a query with conditions from json, can be useful to send query from server side to client
+   * Not static, all query conditions was set before calling this method will be deleted.
+   * For example on the server side we have
+   * var query = new Parse.Query("className");
+   * query.equalTo(key: value);
+   * query.limit(100);
+   * ... (others queries)
+   * Create JSON representation of Query Object
+   * var jsonFromServer = query.fromJSON();
+   *
+   * On client side getting query:
+   * var query = new Parse.Query("className");
+   * query.fromJSON(jsonFromServer);
+   *
+   * and continue to query...
+   * query.skip(100).find().then(...);
+   * @method withJSON
+   * @param {QueryJSON} json from Parse.Query.toJSON() method
+   * @return {Parse.Query} Returns the query, so you can chain this call.
+   */
+  withJSON(json: QueryJSON): ParseQuery {
+
+    if (json.where) {
+      this._where = json.where;
+    }
+
+    if (json.include) {
+      this._include = json.include.split(",");
+    }
+
+    if (json.keys) {
+      this._select = json.keys.split(",");
+    }
+
+    if (json.limit) {
+      this._limit  = json.limit;
+    }
+
+    if (json.skip) {
+      this._skip = json.skip;
+    }
+
+    if (json.order) {
+      this._order = json.order.split(",");
+    }
+
+    for (let key in json) if (json.hasOwnProperty(key))  {
+      if (["where", "include", "keys", "limit", "skip", "order"].indexOf(key) === -1) {
+        this._extraOptions[key] = json[key];
+      }
+    }
+
+    return this;
+
+  }
+
+    /**
+     * Static method to restore Parse.Query by json representation
+     * Internally calling Parse.Query.withJSON
+     * @param {String} className
+     * @param {QueryJSON} json from Parse.Query.toJSON() method
+     * @returns {Parse.Query} new created query
+     */
+  static fromJSON(className: string, json: QueryJSON): ParseQuery {
+    const query = new ParseQuery(className);
+    return query.withJSON(json);
+  }
+
+  /**
    * Constructs a Parse.Object whose id is already known by fetching data from
    * the server.  Either options.success or options.error is called when the
    * find completes.
@@ -273,6 +407,8 @@ export default class ParseQuery {
 
     let controller = CoreManager.getQueryController();
 
+    let select = this._select;
+
     return controller.find(
       this.className,
       this.toJSON(),
@@ -285,7 +421,15 @@ export default class ParseQuery {
         if (!data.className) {
           data.className = override;
         }
-        return ParseObject.fromJSON(data, true);
+
+        // Make sure the data object contains keys for all objects that
+        // have been requested with a select, so that our cached state
+        // updates correctly.
+        if (select) {
+          handleSelectResult(data, select);
+        }
+
+        return ParseObject.fromJSON(data, !select);
       });
     })._thenRunCallbacks(options);
   }
@@ -371,6 +515,8 @@ export default class ParseQuery {
     var params = this.toJSON();
     params.limit = 1;
 
+    var select = this._select;
+
     return controller.find(
       this.className,
       params,
@@ -383,7 +529,15 @@ export default class ParseQuery {
       if (!objects[0].className) {
         objects[0].className = this.className;
       }
-      return ParseObject.fromJSON(objects[0], true);
+
+      // Make sure the data object contains keys for all objects that
+      // have been requested with a select, so that our cached state
+      // updates correctly.
+      if (select) {
+        handleSelectResult(objects[0], select);
+      }
+
+      return ParseObject.fromJSON(objects[0], !select);
     })._thenRunCallbacks(options);
   }
 
@@ -855,6 +1009,35 @@ export default class ParseQuery {
     }
     this._addCondition(key, '$within', { '$box': [ southwest, northeast ] });
     return this;
+  }
+
+  /**
+   * Adds a constraint to the query that requires a particular key's
+   * coordinates be contained within and on the bounds of a given polygon.
+   * Supports closed and open (last point is connected to first) paths
+   *
+   * Polygon must have at least 3 points
+   *
+   * @method withinPolygon
+   * @param {String} key The key to be constrained.
+   * @param {Array} array of geopoints
+   * @return {Parse.Query} Returns the query, so you can chain this call.
+   */
+  withinPolygon(key: string, points: Array): ParseQuery {
+    return this._addCondition(key, '$geoWithin', { '$polygon': points });
+  }
+
+  /**
+   * Add a constraint to the query that requires a particular key's
+   * coordinates that contains a ParseGeoPoint
+   *
+   * @method polygonContains
+   * @param {String} key The key to be constrained.
+   * @param {Parse.GeoPoint} GeoPoint
+   * @return {Parse.Query} Returns the query, so you can chain this call.
+   */
+  polygonContains(key: string, point: ParseGeoPoint): ParseQuery {
+    return this._addCondition(key, '$geoIntersects', { '$point': point });
   }
 
   /** Query Orderings **/
