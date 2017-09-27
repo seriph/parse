@@ -772,16 +772,17 @@ export default class ParseQuery {
     return this._addCondition(key, '$exists', false);
   }
 
-  text(text: string, modifiers: string): ParseQuery {
-    this._addCondition('$text', '$search', text);
-    if(modifiers){
-      if(modifiers.language)
-        this._addCondition('$text', '$language', modifiers.language);
-      if(modifiers.caseSensitive)
-        this._addCondition('$text', '$caseSensitive', modifiers.caseSensitive);
-      if(modifiers.diacriticSensitive)
-        this._addCondition('$text', '$diacriticSensitive', modifiers.diacriticSensitive);
+  text(key: string, text: string, modifiers: string): ParseQuery {
+    var params = {};
+    params['$term'] = text;
+    
+    if (modifiers) {
+      if (modifiers.language) params['$language'] = modifiers.language;
+      if (modifiers.caseSensitive) params['$caseSensitive'] = modifiers.language;
+      if (modifiers.diacriticSensitive) params['$diacriticSensitive'] = modifiers.language;
     }
+    params = {'$search':params};
+    this._addCondition(key, '$text', params);
     return this;
   }
 
