@@ -1,6 +1,6 @@
 {
   "name": "parse-text",
-  "version": "1.10.1",
+  "version": "1.10.2",
   "description": "The Parse JavaScript SDK with full text search capability",
   "homepage": "https://www.parse.com",
   "keywords": [
